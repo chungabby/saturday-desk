@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// It's saturday 工作台 · Firestore 安全規則
+// 貼到 Firebase 主控台 → Firestore Database → 規則 → 發布。
+// 這份規則才是真正的門鎖：網頁程式碼是公開的，但資料只有下面列出的帳號讀得到。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function isBoss() {
+      return signedIn() && request.auth.token.email == 'chungabb4@gmail.com';
+    }
+    function isStaff() {
+      return signedIn() && request.auth.token.email == 'its.saturday.2021@gmail.com';
+    }
+    // 只接受工作台自己的資料格式，避免被塞入其他東西
+    function validDesk() {
+      return request.resource.data.keys().hasOnly(['groups', 'updatedAt', 'updatedBy'])
+        && request.resource.data.groups is list
+        && request.resource.data.groups.size() <= 60
+        && request.resource.data.updatedBy == request.auth.token.email;
+    }
+
+    // 老闆版：只有老闆能讀寫
+    match /desks/boss {
+      allow read: if isBoss();
+      allow create, update: if isBoss() && validDesk();
+      allow delete: if false;
+    }
+
+    // 員工版：老闆與員工都能看，只有老闆能改
+    match /desks/staff {
+      allow read: if isBoss() || isStaff();
+      allow create, update: if isBoss() && validDesk();
+      allow delete: if false;
+    }
+
+    // 其他所有資料一律拒絕
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
